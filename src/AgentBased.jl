@@ -1,4 +1,4 @@
-module JuliaABM
+module AgentBased
 
 using HDF5
 import Base.flush
@@ -8,7 +8,7 @@ export Collector, Report, simbatch, update, flush
 type TypedBuffer{T <: NTuple}
     size::Int # The current number of data entries in the buffer.
     maxsize::Int # The maximum number of data entries in the buffer.
-    data::T # Tuple that contains a fixed number of 1-dimensional arrays with length `maxsize`. 
+    data::T # Tuple that contains a fixed number of 1-dimensional arrays with length `maxsize`.
 
     function TypedBuffer(size, maxsize, data)
         @assert size == 0
@@ -39,8 +39,8 @@ end
 """
     Report(args...)
 
-Return a `Report` that specifies the data that should be collected. Each element of `args` is a 
-`Tuple{ASCIIString, DataType, Function}` that specifies a piece of collected data. The 
+Return a `Report{N}` that specifies the data that should be collected. Each of `N` elements of
+`args` is a `Tuple{ASCIIString, DataType, Function}` that specifies a piece of collected data. The
 `ASCIIString` specifies the name of the piece of data and the `DataType` its type. The `Function`
 returns the corresponding value when called as `f(model, agents, exp)` if the report is used as a
 modelreport and as `f(model, agent, exp)` if the report is used as an agentreport.
@@ -72,9 +72,9 @@ type Collector{M,A,T}
 end
 
 """
-    Collector{M,A,T}(modelreport, agentreport, condition, prepare, finish, chunksz)
+    Collector(modelreport, agentreport, condition, prepare, finish, chunksz)
 
-Return a `Collector` that collects data according to the specification provided by `modelreport`
+Return a `Collector{M,A,T}` that collects data according to the specification provided by `modelreport`
 and `agentreport`. When the `agentreport` is empty, the collector collects data only once for every
 call to update it. When it is not empty, the collector collects data once for every individual
 agent.
@@ -93,7 +93,7 @@ store before sending it off to the master process to write it to disk.
 """
 function Collector{M,A}(modelreport::Report{M} = Report(), agentreport::Report{A} = Report(),
                         condition::Function = () -> true, prepare::Function = () -> nothing,
-                        finish::Function = () -> nothing, chunksz::Int = 10000)
+                        finish::Function = () -> nothing, chunksz::Int = 15000)
     types = vcat(modelreport.types, agentreport.types)
     buffer = TypedBuffer(types, chunksz)
     T = typeof(buffer).parameters[1]
@@ -115,7 +115,7 @@ send the buffered data to the master process to write it to disk.
 # Arguments
 * `collector::Collector`: the collector to update.
 * `model::Any`: an object that contains the variables required to collect data.
-* `agents::Array{Any, N}`: an N-dimensional array that contains the agents.
+* `agents::Array`: an N-dimensional array that contains the agents.
 * `exp::Any`: an object that holds the parameters that were used to configure the current run of
 the simulation.
 """
@@ -193,7 +193,7 @@ end
 
 Manually send the buffered data in the 'collector' to the master process to write it to disk.
 Usually called right before the simulation function returns to ensure that the remaining data
-is written to disk. 
+is written to disk.
 
 # Arguments
 * `collector::Collector`: the collector whose buffer to flush.
@@ -222,15 +222,15 @@ Collect data using the `collector`.
 
 # Arguments
 * `f::Function`: the simulation function.
-* `expqueue::Array{Any,1}`: a 1-dimensional array that contains objects that hold the parameters
+* `expqueue::Array{T,1}`: a 1-dimensional array that contains objects that hold the parameters
 needed to configure a run of the simulation.
 * `filename::ASCIIString`: the HDF5 file to in which to store the data.
-* `groupname::ASCIIString`: the group in the HDF5 file in which to store the data. 
+* `groupname::ASCIIString`: the group in the HDF5 file in which to store the data.
 * `writemode::ASCIIString`: the writemode to use for `filename`. Can be either "r+" (read-write,
 preserving any existing contents) or "w" (read-write, destroying any existing contents, if any).
 * `collector::Collector`: the collector to use to collect data.
 """
-function simbatch(f:::Function, expqueue::Array{Any,1}, filename::ASCIIString,
+function simbatch{T}(f::Function, expqueue::Array{T,1}, filename::ASCIIString,
                   groupname::ASCIIString, writemode::ASCIIString, collector::Collector)
     hdf5file = h5open(filename, writemode)
     try
@@ -254,7 +254,7 @@ function simbatch(f:::Function, expqueue::Array{Any,1}, filename::ASCIIString,
     return nothing
 end
 
-function pmaphdf5{Experiment}(hdf5group::HDF5Group, f:::Function, expqueue::Array{Experiment,1},
+function pmaphdf5{Experiment}(hdf5group::HDF5Group, f::Function, expqueue::Array{Experiment,1},
                               collector::Collector)
     next_expidx::Int64 = 0
     getnext_expidx() = (next_expidx += 1)
