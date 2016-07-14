@@ -289,7 +289,7 @@ function pmaphdf5{Experiment}(hdf5group::HDF5Group, f::Function, expqueue::Array
                         print("$(now()): Computing experiments $overview...\n")
                         status = remotecall_fetch(i_wpid, f, expqueue[cur_expidx], cur_expidx,
                                                   collector)
-                        status < 0 && info("Experiment $cur_expidx skipped: ", strstatus(status))
+                        status != "" && info("Experiment $cur_expidx: $status")
                         cur_expidx = getnext_expidx()
                     end
                     updateoverview(i_wpid, 0)
