@@ -1,9 +1,9 @@
-JuliaABM
+AgentBased.jl
 ========
 
 [![License](http://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat)](LICENSE.md)
 
-**JuliaABM** is a high performance parallel Agent-Based Modelling framework for Julia.
+**AgentBased.jl** is a high performance parallel Agent-Based Modelling framework for Julia.
 
 #### Release Notes
 
