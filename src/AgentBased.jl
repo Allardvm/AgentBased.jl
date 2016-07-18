@@ -3,7 +3,7 @@ module AgentBased
 using HDF5
 import Base.flush
 
-export Collector, Report, simbatch, update, flush
+export Collector, Reporter, simbatch, update, flush
 
 type TypedBuffer{T <: NTuple}
     size::Int # The current number of data entries in the buffer.
@@ -29,7 +29,7 @@ type Reporter{N}
     types::Array{DataType,1} # The types of the pieces of data.
     calls::Array{Function,1} # The functions that return the corresponding values.
 
-    function Reporter(iter, names, types, calls, iter)
+    function Reporter(iter, names, types, calls)
         @assert length(names) == N
         @assert length(types) == N
         @assert length(calls) == N
@@ -299,4 +299,4 @@ end
     end
 end
 
-end # module JuliaABM
+end # module AgentBased
