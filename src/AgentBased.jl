@@ -90,7 +90,7 @@ collects data. Called as `finish(model, agents, exp)`.
 * `chunksz::Int = 10000`: specifies the number of pieces of data that the collector's buffer can
 store before sending it off to the master process to write it to disk.
 """
-function Collector{N}(reporter::Reporter{N} = Reporter() condition::Function = () -> true,
+function Collector{N}(reporter::Reporter{N} = Reporter(), condition::Function = () -> true,
                       prepare::Function = () -> nothing, finish::Function = () -> nothing,
                       chunksz::Int = 15000)
     buffer = TypedBuffer(reporter.types, chunksz)
