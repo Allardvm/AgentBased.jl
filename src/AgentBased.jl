@@ -121,7 +121,7 @@ the simulation.
         if collector.condition(model, agents, exp) == true
             collector.prepare(model, agents, exp)
             quote
-                for i in collector.reporter()
+                for i in collector.reporter.iter(model, agents, exp)
                     ensureroom(collector)
                     collector.buffer.size += 1
 
