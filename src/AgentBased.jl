@@ -23,42 +23,42 @@ function TypedBuffer(types::Array{DataType,1}, maxsize::Int)
     return TypedBuffer{typeof(data)}(0, maxsize, data)
 end
 
-type Report{N}
+type Reporter{N}
+    iter::Function # Returns an iterable when called as iter(model, agents, exp)
     names::Array{ASCIIString,1} # The names of the pieces of data.
     types::Array{DataType,1} # The types of the pieces of data.
-    calls::Array{Function,1} # the functions that return the corresponding values.
+    calls::Array{Function,1} # The functions that return the corresponding values.
 
-    function Report(names, types, calls)
+    function Reporter(iter, names, types, calls, iter)
         @assert length(names) == N
         @assert length(types) == N
         @assert length(calls) == N
-        return new(names, types, calls)
+        return new(iter, names, types, calls)
     end
 end
 
 """
-    Report(args...)
+    Reporter(args...)
 
-Return a `Report{N}` that specifies the data that should be collected. Each of `N` elements of
+Return a `Reporter{N}` that specifies the data that should be collected. Each of `N` elements of
 `args` is a `Tuple{ASCIIString, DataType, Function}` that specifies a piece of collected data. The
 `ASCIIString` specifies the name of the piece of data and the `DataType` its type. The `Function`
-returns the corresponding value when called as `f(model, agents, exp)` if the report is used as a
-modelreport and as `f(model, agent, exp)` if the report is used as an agentreport.
+returns the corresponding value when called as `f(model, agents, exp)` if the reporter is used as a
+modelreporter and as `f(model, agent, exp)` if the reporter is used as an agentreporter.
 
 # Arguments
 * `args::Tuple{ASCIIString, DataType, Function}...`: specifies the data that should be collected.
 """
-function Report(args::Tuple{ASCIIString, DataType, Function}...)
+function Reporter(iter::Function, args::Tuple{ASCIIString, DataType, Function}...)
     N = length(args)
-    names = [arg[1]::ASCIIString for arg in args]
-    types = [arg[2]::DataType for arg in args]
-    calls = [arg[3]::Function for arg in args]
-    return Report{N}(names, types, calls)
+    names = ASCIIString[arg[1] for arg in args]
+    types = DataType[arg[2] for arg in args]
+    calls = Function[arg[3] for arg in args]
+    return Reporter{N}(iter, names, types, calls)
 end
 
-type Collector{M,A,T}
-    modelreport::Report{M} # Specifies the global model data that should be collected.
-    agentreport::Report{A} # Specifies the agent specific data that should be collected.
+type Collector{T,N}
+    reporter::Reporter{N} # Specifies the data that should be collected.
     condition::Function # Specifies the conditions under which calls to update the
                         # collector should proceed. Continues if and only if `condition(model,
                         # agents, exp)` returns `true`.
@@ -72,16 +72,15 @@ type Collector{M,A,T}
 end
 
 """
-    Collector(modelreport, agentreport, condition, prepare, finish, chunksz)
+    Collector(reporter, condition, prepare, finish, chunksz)
 
-Return a `Collector{M,A,T}` that collects data according to the specification provided by `modelreport`
-and `agentreport`. When the `agentreport` is empty, the collector collects data only once for every
+Return a `Collector{T,N}` that collects data according to the specification provided by the reporter.
+When the `agentreporter` is empty, the collector collects data only once for every
 call to update it. When it is not empty, the collector collects data once for every individual
 agent.
 
 # Arguments
-* `modelreport::Report{M} = Report()`: specifies the global model data that should be collected.
-* `agentreport::Report{A} = Report()`: specifies the agent specific data that should be collected.
+* `reporter::Reporter{M} = Reporter()`: specifies the data that should be collected.
 * `condition::Function = () -> true`: specifies the conditions under which calls to update the
 collector should proceed. Continues if and only if `condition(model, agents, exp)` returns `true`.
 * `prepare::Function = () -> true`: specifies algorithms to run right before the collector collects
@@ -91,15 +90,13 @@ collects data. Called as `finish(model, agents, exp)`.
 * `chunksz::Int = 10000`: specifies the number of pieces of data that the collector's buffer can
 store before sending it off to the master process to write it to disk.
 """
-function Collector{M,A}(modelreport::Report{M} = Report(), agentreport::Report{A} = Report(),
-                        condition::Function = () -> true, prepare::Function = () -> nothing,
-                        finish::Function = () -> nothing, chunksz::Int = 15000)
-    types = vcat(modelreport.types, agentreport.types)
-    buffer = TypedBuffer(types, chunksz)
+function Collector{N}(reporter::Reporter{N} = Reporter() condition::Function = () -> true,
+                      prepare::Function = () -> nothing, finish::Function = () -> nothing,
+                      chunksz::Int = 15000)
+    buffer = TypedBuffer(reporter.types, chunksz)
     T = typeof(buffer).parameters[1]
     writequeue = RemoteRef(() -> Channel{TypedBuffer{T}}(2 * nworkers()), 1)
-    return Collector{M,A,T}(modelreport, agentreport, condition, prepare, finish, buffer,
-                            writequeue)
+    return Collector{T,N}(reporter, condition, prepare, finish, buffer, writequeue)
 end
 
 """
@@ -108,7 +105,7 @@ end
 Update the `collector` by collecting data according to the specification provided by its fields.
 The data collection, condition, prepare, and finish functions specified in the `collector` are
 called as f(`model`, `agents`, `exp`). Collect data on individual agents by calling the data
-collection functions in the `agentreport` field of the `collector` once for each element `i_agent`
+collection functions in the `agentreporter` field of the `collector` once for each element `i_agent`
 in `agents` as f(`model`, `i_agent`. `exp`). If the `collector`'s buffer is full, automatically
 send the buffered data to the master process to write it to disk.
 
@@ -119,69 +116,32 @@ send the buffered data to the master process to write it to disk.
 * `exp::Any`: an object that holds the parameters that were used to configure the current run of
 the simulation.
 """
-@generated function update{M,A,T}(collector::Collector{M,A,T}, model, agents, exp)
+@generated function update{T,N}(collector::Collector{T,N}, model, agents, exp)
     return quote
         if collector.condition(model, agents, exp) == true
             collector.prepare(model, agents, exp)
-            $(if A > 0 # Only compile this part when there is an agentreport.
-                quote
-                    for i_agent in agents
-                        ensureroom(collector)
-                        collector.buffer.size += 1
-
-                        # Manually hoist field access from the inner loops.
-                        data = collector.buffer.data
-                        size = collector.buffer.size
-                        modelcalls = collector.modelreport.calls
-                        agentcalls = collector.agentreport.calls
-
-                        # Unroll the loop to avoid type instability due to accessing fields with
-                        # heterogenous types.
-                        $(ex = :();
-                          for idx in 1:M;
-                              retype = T.parameters[idx].parameters[1];
-                              ex = :($(ex.args...);
-                                     @inbounds data[$idx][size] =
-                                         modelcalls[$idx](model, i_agent, exp)::$retype);
-                          end;
-                          ex)
-
-                        # Agent report accessed in an unrolled loop to avoid type instability
-                        # due to accessing fields with heterogenous types. Access to buffer fields
-                        # is offset by `M` to account for the fields of the model report.
-                        $(ex = :();
-                          for idx in 1:A;
-                              offsetidx = idx + M;
-                              retype = T.parameters[offsetidx].parameters[1];
-                              ex = :($(ex.args...);
-                                     @inbounds data[$offsetidx][size] =
-                                         agentcalls[$idx](model, i_agent, exp)::$retype);
-                          end;
-                          ex)
-                    end
-                end
-            elseif M > 0 # Only compile this part when there is a modelreport.
-                quote
+            quote
+                for i in collector.reporter()
                     ensureroom(collector)
                     collector.buffer.size += 1
 
                     # Manually hoist field access from the inner loops.
                     data = collector.buffer.data
                     size = collector.buffer.size
-                    modelcalls = collector.modelreport.calls
+                    calls = collector.reporter.calls
 
                     # Unroll the loop to avoid type instability due to accessing fields with
                     # heterogenous types.
                     $(ex = :();
-                      for idx in 1:M;
-                          retype = T.parameters[idx].parameters[1];
-                          ex = :($(ex.args...);
-                                 @inbounds data[$idx][size] =
-                                     modelcalls[$idx](model, agents, exp)::$retype);
-                      end;
-                      ex)
+                        for idx in 1:N;
+                            retype = T.parameters[idx].parameters[1];
+                            ex = :($(ex.args...);
+                                   @inbounds data[$idx][size] =
+                                       calls[$idx](model, agents, exp, i)::$retype);
+                        end;
+                        ex)
                 end
-            end)
+            end
             collector.finish(model, agents, exp)
         end
         return nothing
@@ -302,88 +262,37 @@ function pmaphdf5{Experiment}(hdf5group::HDF5Group, f::Function, expqueue::Array
     return nothing
 end
 
-@generated function inserthdf5!{M,A,T}(hdf5group::HDF5Group, writeoffset::Integer,
-                                       collector::Collector{M,A,T}, writequeue::TypedBuffer{T})
+@generated function inserthdf5!{T,N}(hdf5group::HDF5Group, writeoffset::Integer,
+                                     collector::Collector{T,N}, writequeue::TypedBuffer{T})
     return quote
         if writequeue.size > 0
             newoffset = writeoffset + writequeue.size
-            $(if A > 0 # Only compile this part when there is an agentreport.
-                quote
-                    # Manually hoist field access from the inner loops.
-                    m_names = collector.modelreport.names
-                    a_names = collector.agentreport.names
-                    data = writequeue.data
-                    size = writequeue.size
-                    maxsize = writequeue.maxsize
+            quote
+                # Manually hoist field access from the inner loops.
+                names = collector.reporter.names
+                data = writequeue.data
+                size = writequeue.size
+                maxsize = writequeue.maxsize
 
-                    # Unroll the loop to avoid type instability due to accessing fields with
-                    # heterogenous types.
-                    $(ex = :();
-                      for idx in 1:M;
-                          retype = T.parameters[idx].parameters[1];
-                          ex = :($(ex.args...);
-                                 if exists(hdf5group, m_names[$idx]);
-                                     dset = d_open(hdf5group, m_names[$idx]);
-                                     set_dims!(dset, (newoffset, ));
-                                 else;
-                                     dset = d_create(hdf5group, m_names[$idx], $retype,
-                                                     ((size, ), (-1, )), "chunk", (maxsize, ));
-                                 end;
-                                 dset[(writeoffset + 1):newoffset] = sub(data[$idx], 1:size);
-                                 close(dset);
-                          );
-                      end;
-                      ex)
-
-                    # Unroll the loop to avoid type instability due to accessing fields with
-                    # heterogenous types. Access to buffer fields is offset by `M` to account for
-                    # the fields of the model report.
-                    $(ex = :();
-                      for idx in 1:A;
-                          offsetidx = idx + M;
-                          retype = T.parameters[offsetidx].parameters[1];
-                          ex = :($(ex.args...);
-                                 if exists(hdf5group, a_names[$idx]);
-                                     dset = d_open(hdf5group, a_names[$idx]);
-                                     set_dims!(dset, (newoffset, ));
-                                 else;
-                                     dset = d_create(hdf5group, a_names[$idx], $retype,
-                                                     ((size, ), (-1, )), "chunk", (maxsize, ));
-                                 end;
-                                 dset[(writeoffset + 1):newoffset] = sub(data[$offsetidx], 1:size);
-                                 close(dset);
-                          );
-                      end;
-                      ex)
+                # Unroll the loop to avoid type instability due to accessing fields with
+                # heterogenous types.
+                $(ex = :();
+                    for idx in 1:N;
+                        retype = T.parameters[idx].parameters[1];
+                        ex = :($(ex.args...);
+                                if exists(hdf5group, names[$idx]);
+                                    dset = d_open(hdf5group, names[$idx]);
+                                    set_dims!(dset, (newoffset, ));
+                                else;
+                                    dset = d_create(hdf5group, names[$idx], $retype,
+                                                    ((size, ), (-1, )), "chunk", (maxsize, ));
+                                end;
+                                dset[(writeoffset + 1):newoffset] = sub(data[$idx], 1:size);
+                                close(dset);
+                        );
+                    end;
+                    ex)
                 end
-            elseif M > 0 # Only compile this part when there is a modelreport.
-                quote
-                    # Manually hoist field access from the inner loops.
-                    m_names = collector.modelreport.names
-                    data = writequeue.data
-                    size = writequeue.size
-                    maxsize = writequeue.maxsize
-
-                    # Unroll the loop to avoid type instability due to accessing fields with
-                    # heterogenous types.
-                    $(ex = :();
-                      for idx in 1:M;
-                          retype = T.parameters[idx].parameters[1];
-                          ex = :($(ex.args...);
-                                 if exists(hdf5group, m_names[$idx]);
-                                     dset = d_open(hdf5group, m_names[$idx]);
-                                     set_dims!(dset, (newoffset, ));
-                                 else;
-                                     dset = d_create(hdf5group, m_names[$idx], $retype,
-                                                     ((size, ), (-1, )), "chunk", (maxsize, ));
-                                 end;
-                                 dset[(writeoffset + 1):newoffset] = sub(data[$idx], 1:size);
-                                 close(dset);
-                          );
-                      end;
-                      ex)
-                end
-            end)
             writeoffset = newoffset
         end
         return writeoffset
