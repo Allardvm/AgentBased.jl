@@ -43,10 +43,13 @@ end
 Return a `Reporter{N}` that specifies the data that should be collected. Each of `N` elements of
 `args` is a `Tuple{ASCIIString, DataType, Function}` that specifies a piece of collected data. The
 `ASCIIString` specifies the name of the piece of data and the `DataType` its type. The `Function`
-returns the corresponding value when called as `f(model, agents, exp)` if the reporter is used as a
-modelreporter and as `f(model, agent, exp)` if the reporter is used as an agentreporter.
+in the tuple should return the corresponding value when called as `f(model, agents, exp, i)`. The
+function is called once for each element `i` of the iterable that is returned when calling `iter`
+as `iter(model, agents, exp)`. This can be used to, for example, collect data on all individual
+agents.
 
 # Arguments
+* `iter::Function`: specifies the iterable to be used when collecting data.
 * `args::Tuple{ASCIIString, DataType, Function}...`: specifies the data that should be collected.
 """
 function Reporter(iter::Function, args::Tuple{ASCIIString, DataType, Function}...)
@@ -74,10 +77,8 @@ end
 """
     Collector(reporter, condition, prepare, finish, chunksz)
 
-Return a `Collector{T,N}` that collects data according to the specification provided by the reporter.
-When the `agentreporter` is empty, the collector collects data only once for every
-call to update it. When it is not empty, the collector collects data once for every individual
-agent.
+Return a `Collector{T,N}` that collects data according to the specification provided by the
+reporter.
 
 # Arguments
 * `reporter::Reporter{M} = Reporter()`: specifies the data that should be collected.
@@ -103,10 +104,7 @@ end
     update(collector, model, agents, exp)
 
 Update the `collector` by collecting data according to the specification provided by its fields.
-The data collection, condition, prepare, and finish functions specified in the `collector` are
-called as f(`model`, `agents`, `exp`). Collect data on individual agents by calling the data
-collection functions in the `agentreporter` field of the `collector` once for each element `i_agent`
-in `agents` as f(`model`, `i_agent`. `exp`). If the `collector`'s buffer is full, automatically
+The condition, prepare, and finish functions specified in the `collector` are called as f(`model`, `agents`, `exp`). If the `collector`'s buffer is full, automatically
 send the buffered data to the master process to write it to disk.
 
 # Arguments
@@ -120,28 +118,29 @@ the simulation.
     return quote
         if collector.condition(model, agents, exp) == true
             collector.prepare(model, agents, exp)
-            quote
-                for i in collector.reporter.iter(model, agents, exp)
-                    ensureroom(collector)
-                    collector.buffer.size += 1
 
-                    # Manually hoist field access from the inner loops.
-                    data = collector.buffer.data
-                    size = collector.buffer.size
-                    calls = collector.reporter.calls
+            # Hoist from the loop.
+            data = collector.buffer.data
+            calls = collector.reporter.calls
+            for i in collector.reporter.iter(model, agents, exp)
+                ensureroom(collector)
+                collector.buffer.size += 1
 
-                    # Unroll the loop to avoid type instability due to accessing fields with
-                    # heterogenous types.
-                    $(ex = :();
-                        for idx in 1:N;
-                            retype = T.parameters[idx].parameters[1];
-                            ex = :($(ex.args...);
-                                   @inbounds data[$idx][size] =
-                                       calls[$idx](model, agents, exp, i)::$retype);
-                        end;
-                        ex)
-                end
+                # Hoist from the loop.
+                size = collector.buffer.size
+
+                # Unroll the loop to avoid type instability due to accessing fields with
+                # heterogenous types.
+                $(ex = :();
+                    for idx in 1:N;
+                        retype = T.parameters[idx].parameters[1];
+                        ex = :($(ex.args...);
+                                @inbounds data[$idx][size] =
+                                    calls[$idx](model, agents, exp, i)::$retype);
+                    end;
+                    ex)
             end
+
             collector.finish(model, agents, exp)
         end
         return nothing
@@ -267,32 +266,31 @@ end
     return quote
         if writequeue.size > 0
             newoffset = writeoffset + writequeue.size
-            quote
-                # Manually hoist field access from the inner loops.
-                names = collector.reporter.names
-                data = writequeue.data
-                size = writequeue.size
-                maxsize = writequeue.maxsize
 
-                # Unroll the loop to avoid type instability due to accessing fields with
-                # heterogenous types.
-                $(ex = :();
-                    for idx in 1:N;
-                        retype = T.parameters[idx].parameters[1];
-                        ex = :($(ex.args...);
-                                if exists(hdf5group, names[$idx]);
-                                    dset = d_open(hdf5group, names[$idx]);
-                                    set_dims!(dset, (newoffset, ));
-                                else;
-                                    dset = d_create(hdf5group, names[$idx], $retype,
-                                                    ((size, ), (-1, )), "chunk", (maxsize, ));
-                                end;
-                                dset[(writeoffset + 1):newoffset] = sub(data[$idx], 1:size);
-                                close(dset);
-                        );
-                    end;
-                    ex)
-                end
+            # Hoist from the loop.
+            names = collector.reporter.names
+            data = writequeue.data
+            size = writequeue.size
+            maxsize = writequeue.maxsize
+
+            # Unroll the loop to avoid type instability due to accessing fields with
+            # heterogenous types.
+            $(ex = :();
+                for idx in 1:N;
+                    retype = T.parameters[idx].parameters[1];
+                    ex = :($(ex.args...);
+                            if exists(hdf5group, names[$idx]);
+                                dset = d_open(hdf5group, names[$idx]);
+                                set_dims!(dset, (newoffset, ));
+                            else;
+                                dset = d_create(hdf5group, names[$idx], $retype,
+                                                ((size, ), (-1, )), "chunk", (maxsize, ));
+                            end;
+                            dset[(writeoffset + 1):newoffset] = sub(data[$idx], 1:size);
+                            close(dset);
+                    );
+                end;
+                ex)
             writeoffset = newoffset
         end
         return writeoffset
