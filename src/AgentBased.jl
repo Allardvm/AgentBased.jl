@@ -104,8 +104,9 @@ end
     update(collector, model, agents, exp)
 
 Update the `collector` by collecting data according to the specification provided by its fields.
-The condition, prepare, and finish functions specified in the `collector` are called as f(`model`, `agents`, `exp`). If the `collector`'s buffer is full, automatically
-send the buffered data to the master process to write it to disk.
+The condition, prepare, and finish functions specified in the `collector` are called as
+f(`model`, `agents`, `exp`). If the `collector`'s buffer is full, automatically send the buffered
+data to the master process to write it to disk.
 
 # Arguments
 * `collector::Collector`: the collector to update.
