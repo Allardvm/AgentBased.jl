@@ -25,7 +25,7 @@ end
 
 type Reporter{N}
     iter::Function # Returns an iterable when called as iter(model, agents, exp)
-    names::Array{ASCIIString,1} # The names of the pieces of data.
+    names::Array{String,1} # The names of the pieces of data.
     types::Array{DataType,1} # The types of the pieces of data.
     calls::Array{Function,1} # The functions that return the corresponding values.
 
@@ -41,20 +41,20 @@ end
     Reporter(args...)
 
 Return a `Reporter{N}` that specifies the data that should be collected. Each of `N` elements of
-`args` is a `Tuple{ASCIIString, DataType, Function}` that specifies a piece of collected data. The
-`ASCIIString` specifies the name of the piece of data and the `DataType` its type. The `Function`
-in the tuple should return the corresponding value when called as `f(model, agents, exp, i)`. The
-function is called once for each element `i` of the iterable that is returned when calling `iter`
-as `iter(model, agents, exp)`. This can be used to, for example, collect data on all individual
+`args` is a `Tuple{String, DataType, Function}` that specifies a piece of collected data. The
+`String` specifies the name of the piece of data and the `DataType` its type. The `Function` in the
+tuple should return the corresponding value when called as `f(model, agents, exp, i)`. The function
+is called once for each element `i` of the iterable that is returned when calling `iter` as
+`iter(model, agents, exp)`. This can be used to, for example, collect data on all individual
 agents.
 
 # Arguments
 * `iter::Function`: specifies the iterable to be used when collecting data.
-* `args::Tuple{ASCIIString, DataType, Function}...`: specifies the data that should be collected.
+* `args::Tuple{String, DataType, Function}...`: specifies the data that should be collected.
 """
-function Reporter(iter::Function, args::Tuple{ASCIIString, DataType, Function}...)
+function Reporter(iter::Function, args::Tuple{String, DataType, Function}...)
     N = length(args)
-    names = ASCIIString[arg[1] for arg in args]
+    names = String[arg[1] for arg in args]
     types = DataType[arg[2] for arg in args]
     calls = Function[arg[3] for arg in args]
     return Reporter{N}(iter, names, types, calls)
@@ -83,13 +83,14 @@ reporter.
 # Arguments
 * `reporter::Reporter{M} = Reporter()`: specifies the data that should be collected.
 * `condition::Function = () -> true`: specifies the conditions under which calls to update the
-collector should proceed. Continues if and only if `condition(model, agents, exp)` returns `true`.
+    collector should proceed. Continues if and only if `condition(model, agents, exp)` returns
+    `true`.
 * `prepare::Function = () -> true`: specifies algorithms to run right before the collector collects
-data. Called as `prepare(model, agents, exp)`.
+    data. Called as `prepare(model, agents, exp)`.
 * `finish::Function = () -> nothing`: specifies algorithms that run right after the collector
-collects data. Called as `finish(model, agents, exp)`.
+    collects data. Called as `finish(model, agents, exp)`.
 * `chunksz::Int = 10000`: specifies the number of pieces of data that the collector's buffer can
-store before sending it off to the master process to write it to disk.
+    store before sending it off to the master process to write it to disk.
 """
 function Collector{N}(reporter::Reporter{N} = Reporter(), condition::Function = () -> true,
                       prepare::Function = () -> nothing, finish::Function = () -> nothing,
@@ -113,7 +114,7 @@ data to the master process to write it to disk.
 * `model::Any`: an object that contains the variables required to collect data.
 * `agents::Array`: an N-dimensional array that contains the agents.
 * `exp::Any`: an object that holds the parameters that were used to configure the current run of
-the simulation.
+    the simulation.
 """
 @generated function update{T,N}(collector::Collector{T,N}, model, agents, exp)
     return quote
@@ -183,15 +184,15 @@ Collect data using the `collector`.
 # Arguments
 * `f::Function`: the simulation function.
 * `expqueue::Array{T,1}`: a 1-dimensional array that contains objects that hold the parameters
-needed to configure a run of the simulation.
-* `filename::ASCIIString`: the HDF5 file to in which to store the data.
-* `groupname::ASCIIString`: the group in the HDF5 file in which to store the data.
-* `writemode::ASCIIString`: the writemode to use for `filename`. Can be either "r+" (read-write,
-preserving any existing contents) or "w" (read-write, destroying any existing contents, if any).
+    needed to configure a run of the simulation.
+* `filename::String`: the HDF5 file to in which to store the data.
+* `groupname::String`: the group in the HDF5 file in which to store the data.
+* `writemode::String`: the writemode to use for `filename`. Can be either "r+" (read-write,
+    preserving any existing contents) or "w" (read-write, destroying any existing contents, if any).
 * `collector::Collector`: the collector to use to collect data.
 """
-function simbatch{T}(f::Function, expqueue::Array{T,1}, filename::ASCIIString,
-                  groupname::ASCIIString, writemode::ASCIIString, collector::Collector)
+function simbatch{T}(f::Function, expqueue::Array{T,1}, filename::String, groupname::String,
+                     writemode::String, collector::Collector)
     hdf5file = h5open(filename, writemode)
     try
         if exists(hdf5file, groupname)
