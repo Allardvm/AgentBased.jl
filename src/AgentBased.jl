@@ -288,7 +288,7 @@ end
                                 dset = d_create(hdf5group, names[$idx], $retype,
                                                 ((size, ), (-1, )), "chunk", (maxsize, ));
                             end;
-                            dset[(writeoffset + 1):newoffset] = sub(data[$idx], 1:size);
+                            dset[(writeoffset + 1):newoffset] = view(data[$idx], 1:size);
                             close(dset);
                     );
                 end;
