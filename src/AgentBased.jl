@@ -5,7 +5,7 @@ import Base.flush
 
 export Collector, Reporter, simbatch, update, flush
 
-type TypedBuffer{T <: NTuple}
+type TypedBuffer{T<:NTuple}
     size::Int # The current number of data entries in the buffer.
     maxsize::Int # The maximum number of data entries in the buffer.
     data::T # Tuple that contains a fixed number of 1-dimensional arrays with length `maxsize`.
@@ -13,7 +13,7 @@ type TypedBuffer{T <: NTuple}
     function TypedBuffer(size, maxsize, data)
         @assert size == 0
         @assert maxsize > 0
-        @assert typeof(data) <: NTuple{length(data), Array}
+        @assert typeof(data) <: NTuple{length(data),Array}
         return new(size, maxsize, data)
     end
 end
@@ -52,7 +52,7 @@ agents.
 * `iter::Function`: specifies the iterable to be used when collecting data.
 * `args::Tuple{String, DataType, Function}...`: specifies the data that should be collected.
 """
-function Reporter(iter::Function, args::Tuple{String, DataType, Function}...)
+function Reporter(iter::Function, args::Tuple{String,DataType,Function}...)
     N = length(args)
     names = String[arg[1] for arg in args]
     types = DataType[arg[2] for arg in args]
@@ -69,7 +69,7 @@ type Collector{T,N}
                       # Called as `prepare(model, agents, exp)`.
     finish::Function # Specifies algorithms that run right after the collector collects data.
                      # Called as `finish(model, agents, exp)`.
-    buffer::TypedBuffer{T} # Stores a data entries until the buffer is full.
+    buffer::TypedBuffer{T} # Stores data entries until the buffer is full.
     writequeue::RemoteRef{Channel{TypedBuffer{T}}} # References the master process' queue to which
                                                    # to send the buffer when it is full.
 end

@@ -9,10 +9,6 @@ AgentBased.jl
 
 * We're live!
 
-#### ToDo
-
-* Add option to write to a CSV file.
-
 #### Documentation
 
 * Not yet available.
