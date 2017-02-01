@@ -70,8 +70,8 @@ type Collector{T,N}
     finish::Function # Specifies algorithms that run right after the collector collects data.
                      # Called as `finish(model, agents, exp)`.
     buffer::TypedBuffer{T} # Stores data entries until the buffer is full.
-    writequeue::RemoteRef{Channel{TypedBuffer{T}}} # References the master process' queue to which
-                                                   # to send the buffer when it is full.
+    writequeue::RemoteChannel{Channel{TypedBuffer{T}}} # References the master process' queue to
+                                                       # which to send the buffer when it is full.
 end
 
 """
