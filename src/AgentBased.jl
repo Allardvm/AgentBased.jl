@@ -97,7 +97,7 @@ function Collector{N}(reporter::Reporter{N} = Reporter(), condition::Function = 
                       chunksz::Int = 15000)
     buffer = TypedBuffer(reporter.types, chunksz)
     T = typeof(buffer).parameters[1]
-    writequeue = RemoteRef(() -> Channel{TypedBuffer{T}}(2 * nworkers()), 1)
+    writequeue = RemoteChannel(() -> Channel{TypedBuffer{T}}(2 * nworkers()), 1)
     return Collector{T,N}(reporter, condition, prepare, finish, buffer, writequeue)
 end
 
