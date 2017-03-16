@@ -5,12 +5,12 @@ import Base.flush
 
 export Collector, Reporter, simbatch, update, flush
 
-type TypedBuffer{T<:NTuple}
+type TypedBuffer{T}
     size::Int # The current number of data entries in the buffer.
     maxsize::Int # The maximum number of data entries in the buffer.
     data::T # Tuple that contains a fixed number of 1-dimensional arrays with length `maxsize`.
 
-    function TypedBuffer(size, maxsize, data)
+    function TypedBuffer{T}(size, maxsize, data) where T
         @assert size == 0
         @assert maxsize > 0
         @assert typeof(data) <: NTuple{length(data),Array}
@@ -18,18 +18,18 @@ type TypedBuffer{T<:NTuple}
     end
 end
 
-function TypedBuffer(types::Array{DataType,1}, maxsize::Int)
-    data = ntuple((idx) -> Array(types[idx]::DataType, maxsize), length(types))
+function TypedBuffer(types::Vector{DataType}, maxsize::Int)
+    data = ntuple((idx) -> Array{types[idx]::DataType}(maxsize), length(types))
     return TypedBuffer{typeof(data)}(0, maxsize, data)
 end
 
 type Reporter{N}
     iter::Function # Returns an iterable when called as iter(model, agents, exp)
-    names::Array{String,1} # The names of the pieces of data.
-    types::Array{DataType,1} # The types of the pieces of data.
-    calls::Array{Function,1} # The functions that return the corresponding values.
+    names::Vector{String} # The names of the pieces of data.
+    types::Vector{DataType} # The types of the pieces of data.
+    calls::Vector{Function} # The functions that return the corresponding values.
 
-    function Reporter(iter, names, types, calls)
+    function Reporter{N}(iter, names, types, calls) where N
         @assert length(names) == N
         @assert length(types) == N
         @assert length(calls) == N
@@ -183,15 +183,15 @@ Collect data using the `collector`.
 
 # Arguments
 * `f::Function`: the simulation function.
-* `expqueue::Array{T,1}`: a 1-dimensional array that contains objects that hold the parameters
-    needed to configure a run of the simulation.
+* `expqueue::Vector{T}`: a vector that contains objects that hold the parameters needed to
+    configure a run of the simulation.
 * `filename::String`: the HDF5 file to in which to store the data.
 * `groupname::String`: the group in the HDF5 file in which to store the data.
 * `writemode::String`: the writemode to use for `filename`. Can be either "r+" (read-write,
     preserving any existing contents) or "w" (read-write, destroying any existing contents, if any).
 * `collector::Collector`: the collector to use to collect data.
 """
-function simbatch{T}(f::Function, expqueue::Array{T,1}, filename::String, groupname::String,
+function simbatch{T}(f::Function, expqueue::Vector{T}, filename::String, groupname::String,
                      writemode::String, collector::Collector)
     hdf5file = h5open(filename, writemode)
     try
@@ -201,7 +201,7 @@ function simbatch{T}(f::Function, expqueue::Array{T,1}, filename::String, groupn
             hdf5group = g_create(hdf5file, groupname)
             juliaversion = IOBuffer()
             versioninfo(juliaversion, false)
-            attrs(hdf5group)["JuliaVersion"] = takebuf_string(juliaversion)
+            attrs(hdf5group)["JuliaVersion"] = String(take!(juliaversion))
             attrs(hdf5group)["DateStarted"] = Dates.format(now(), "yyyy-mm-ddTHH:MM:SS")
         end
         println(now(), ": Queued ", length(expqueue), " experiments on ", nworkers(), " cores")
@@ -215,12 +215,12 @@ function simbatch{T}(f::Function, expqueue::Array{T,1}, filename::String, groupn
     return nothing
 end
 
-function pmaphdf5{Experiment}(hdf5group::HDF5Group, f::Function, expqueue::Array{Experiment,1},
+function pmaphdf5{Experiment}(hdf5group::HDF5Group, f::Function, expqueue::Vector{Experiment},
                               collector::Collector)
     next_expidx::Int64 = 0
     getnext_expidx() = (next_expidx += 1)
 
-    overview::Array{Int64,1} = zeros(Int64, nworkers())
+    overview::Vector{Int64} = zeros(Int64, nworkers())
     updateoverview(wpid::Int64, expidx::Int64) =
         (overview[ifelse(nprocs() == 1, 1, wpid - 1)] = expidx)
 
