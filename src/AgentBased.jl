@@ -1,14 +1,19 @@
 module AgentBased
 
-using HDF5
-import Base.flush
 
-export Collector, Reporter, simbatch, update, flush
+using HDF5
+
+
+include("utils.jl")
+
+
+export Collector, Reporter, simbatch, collectdata, flushdata
+
 
 type TypedBuffer{T}
     size::Int # The current number of data entries in the buffer.
     maxsize::Int # The maximum number of data entries in the buffer.
-    data::T # Tuple that contains a fixed number of 1-dimensional arrays with length `maxsize`.
+    data::T # Tuple that contains a fixed number of data vectors with length `maxsize`.
 
     function TypedBuffer{T}(size, maxsize, data) where T
         @assert size == 0
@@ -18,10 +23,13 @@ type TypedBuffer{T}
     end
 end
 
-function TypedBuffer(types::Vector{DataType}, maxsize::Int)
-    data = ntuple((idx) -> Array{types[idx]::DataType}(maxsize), length(types))
+
+function TypedBuffer(types::Vector{DataType}, maxsize::Integer)
+    n_datavectors = length(types)
+    data = ntuple((idx) -> Vector{types[idx]}(maxsize), n_datavectors)
     return TypedBuffer{typeof(data)}(0, maxsize, data)
 end
+
 
 type Reporter{N}
     iter::Function # Returns an iterable when called as iter(model, agents, exp)
@@ -36,6 +44,7 @@ type Reporter{N}
         return new(iter, names, types, calls)
     end
 end
+
 
 """
     Reporter(args...)
@@ -60,6 +69,7 @@ function Reporter(iter::Function, args::Tuple{String,DataType,Function}...)
     return Reporter{N}(iter, names, types, calls)
 end
 
+
 type Collector{T,N}
     reporter::Reporter{N} # Specifies the data that should be collected.
     condition::Function # Specifies the conditions under which calls to update the
@@ -74,49 +84,49 @@ type Collector{T,N}
                                                        # which to send the buffer when it is full.
 end
 
-"""
-    Collector(reporter, condition, prepare, finish, chunksz)
 
-Return a `Collector{T,N}` that collects data according to the specification provided by the
-reporter.
+"""
+    Collector(reporter; condition = always_true, prepare = always_nothing, finish = always_nothing,                 chunksz = 15000)
+
+Return a `Collector{T,N}` that collects data according to the specification in the reporter.
 
 # Arguments
-* `reporter::Reporter{M} = Reporter()`: specifies the data that should be collected.
-* `condition::Function = () -> true`: specifies the conditions under which calls to update the
-    collector should proceed. Continues if and only if `condition(model, agents, exp)` returns
-    `true`.
-* `prepare::Function = () -> true`: specifies algorithms to run right before the collector collects
-    data. Called as `prepare(model, agents, exp)`.
-* `finish::Function = () -> nothing`: specifies algorithms that run right after the collector
-    collects data. Called as `finish(model, agents, exp)`.
-* `chunksz::Int = 10000`: specifies the number of pieces of data that the collector's buffer can
-    store before sending it off to the master process to write it to disk.
+* `reporter::Reporter{N}`: specifies the data that should be collected.
+* `condition::Function`: specifies the conditions under which the collector should collect data.
+    Calls to collect data with the collector will only proceed when `condition(model, agents, exp)` returns `true`. Defaults to a function that always returns `true`.
+* `prepare::Function`: specifies a function to run right before the collector collects data, but
+    after the check that data should be collected. The function is called as `prepare(model,
+    agents, exp)`. Defaults to an empty function.
+* `finish::Function`: specifies a function to run right after the collector collected data, but
+    only if data was actually collected. The function is called as `finish(model, agents, exp)`.
+    Defaults to an empty function.
+* `chunksz::Integer`: specifies the number of sets of data that the collector's buffer can store
+    before sending it off to the master process to write it to disk.
 """
-function Collector{N}(reporter::Reporter{N} = Reporter(), condition::Function = () -> true,
-                      prepare::Function = () -> nothing, finish::Function = () -> nothing,
-                      chunksz::Int = 15000)
+function Collector{N}(reporter::Reporter{N};
+                      condition::Function = always_true, prepare::Function = always_nothing,
+                      finish::Function = always_nothing, chunksz::Integer = 15000)
     buffer = TypedBuffer(reporter.types, chunksz)
     T = typeof(buffer).parameters[1]
     writequeue = RemoteChannel(() -> Channel{TypedBuffer{T}}(2 * nworkers()), 1)
     return Collector{T,N}(reporter, condition, prepare, finish, buffer, writequeue)
 end
 
-"""
-    update(collector, model, agents, exp)
 
-Update the `collector` by collecting data according to the specification provided by its fields.
-The condition, prepare, and finish functions specified in the `collector` are called as
-f(`model`, `agents`, `exp`). If the `collector`'s buffer is full, automatically send the buffered
-data to the master process to write it to disk.
+"""
+    collectdata(collector, model, agents, exp)
+
+Collect data with the `collector`. If the `collector`'s buffer is full, automatically send the
+buffered data to the master process to write it to disk.
 
 # Arguments
-* `collector::Collector`: the collector to update.
+* `collector::Collector{T,N}`: the collector to update.
 * `model::Any`: an object that contains the variables required to collect data.
-* `agents::Array`: an N-dimensional array that contains the agents.
+* `agents::Array`: a vector that contains the agents.
 * `exp::Any`: an object that holds the parameters that were used to configure the current run of
     the simulation.
 """
-@generated function update{T,N}(collector::Collector{T,N}, model, agents, exp)
+@generated function collectdata{T,N}(collector::Collector{T,N}, model, agents, exp)
     return quote
         if collector.condition(model, agents, exp) == true
             collector.prepare(model, agents, exp)
@@ -126,10 +136,7 @@ data to the master process to write it to disk.
             calls = collector.reporter.calls
             for i in collector.reporter.iter(model, agents, exp)
                 ensureroom(collector)
-                collector.buffer.size += 1
-
-                # Hoist from the loop.
-                size = collector.buffer.size
+                size = (collector.buffer.size += 1)
 
                 # Unroll the loop to avoid type instability due to accessing fields with
                 # heterogenous types.
@@ -149,28 +156,31 @@ data to the master process to write it to disk.
     end
 end
 
-"""
-    flush(collector)
 
-Manually send the buffered data in the 'collector' to the master process to write it to disk.
-Usually called right before the simulation function returns to ensure that the remaining data
-is written to disk.
+"""
+    flushdata(collector)
+
+Send the buffered data in the 'collector' to the master process to write it to disk. Has to be
+called right before the simulation function returns to ensure that the remaining data is written
+to disk.
 
 # Arguments
 * `collector::Collector`: the collector whose buffer to flush.
 """
-function flush(collector::Collector)
+function flushdata(collector::Collector)
     put!(collector.writequeue, deepcopy(collector.buffer))
     collector.buffer.size = 0
     return nothing
 end
 
+
 function ensureroom(collector::Collector)
     if collector.buffer.size >= collector.buffer.maxsize
-        flush(collector)
+        flushdata(collector)
     end
     return nothing
 end
+
 
 """
     simbatch(f, expqueue, filename, groupname, writemode, collector)
@@ -215,14 +225,14 @@ function simbatch{T}(f::Function, expqueue::Vector{T}, filename::String, groupna
     return nothing
 end
 
+
 function pmaphdf5{Experiment}(hdf5group::HDF5Group, f::Function, expqueue::Vector{Experiment},
                               collector::Collector)
-    next_expidx::Int64 = 0
+    next_expidx = 0
     getnext_expidx() = (next_expidx += 1)
 
-    overview::Vector{Int64} = zeros(Int64, nworkers())
-    updateoverview(wpid::Int64, expidx::Int64) =
-        (overview[ifelse(nprocs() == 1, 1, wpid - 1)] = expidx)
+    overview = zeros(Int, nworkers())
+    updateoverview(wpid, expidx) = (overview[ifelse(nprocs() == 1, 1, wpid - 1)] = expidx)
 
     @sync begin
         @async begin
@@ -244,7 +254,7 @@ function pmaphdf5{Experiment}(hdf5group::HDF5Group, f::Function, expqueue::Vecto
             for i_wpid in workers()
                 @async begin
                     last_expidx = length(expqueue)
-                    cur_expidx::Int64 = getnext_expidx()
+                    cur_expidx = getnext_expidx()
                     while cur_expidx <= last_expidx
                         updateoverview(i_wpid, cur_expidx)
                         print("$(now()): Computing experiments $overview...\n")
@@ -262,6 +272,7 @@ function pmaphdf5{Experiment}(hdf5group::HDF5Group, f::Function, expqueue::Vecto
     end
     return nothing
 end
+
 
 @generated function inserthdf5!{T,N}(hdf5group::HDF5Group, writeoffset::Integer,
                                      collector::Collector{T,N}, writequeue::TypedBuffer{T})
@@ -298,5 +309,6 @@ end
         return writeoffset
     end
 end
+
 
 end # module AgentBased
