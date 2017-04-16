@@ -11,3 +11,8 @@ end
 function always_nothing(_...)
     return nothing
 end
+
+
+function passthrough(args...)
+    return (args, )
+end
