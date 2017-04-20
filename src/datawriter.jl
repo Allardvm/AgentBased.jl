@@ -1,22 +1,15 @@
 abstract type DataWriter{C,T} end
 
 
-type TypedBuffer{T}
+type TypedBuffer{T<:NTuple{<:Any,Array}}
     size::Int # The current number of data entries in the buffer.
     maxsize::Int # The maximum number of data entries in the buffer.
     data::T # Tuple that contains a fixed number of data vectors with length `maxsize`.
-
-    function TypedBuffer{T}(size::Int, maxsize::Int, data::T) where T
-        @assert size == 0
-        @assert maxsize > 0
-        @assert typeof(data) <: NTuple{length(data),Array}
-        return new(size, maxsize, data)
-    end
 end
 
 
-@generated function TypedBuffer(collector::C, maxsize::Integer) where C <: Collector
-    buffer_datatypes = C.parameters[1].types
+@generated function TypedBuffer(collector::Collector{C}, maxsize::Integer) where C
+    buffer_datatypes = C.types
     n_datavectors = length(buffer_datatypes)
     T = Tuple{(Vector{buffer_datatypes[i]} for i in 1:n_datavectors)...}
 
@@ -37,7 +30,7 @@ process to write it to disk.
 * `writer::DataWriter`: the DataWriter to use.
 * `args...`: arguments to pass on to the collector's functions.
 """
-@generated function collectdata{C,T}(writer::DataWriter{C,T}, args...)
+@generated function collectdata(writer::DataWriter{C,T}, args...) where {C,T}
     n_calls = length(T.parameters)
     ex = :()
     for call_idx in 1:n_calls

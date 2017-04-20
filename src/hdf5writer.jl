@@ -2,6 +2,7 @@ type HDF5Writer{C,T} <: DataWriter{C,T}
     filename::String
     groupname::String
     writemode::String
+    writeoffset::Int
     collector::C # The collector used by the DataWriter.
     localbuffer::TypedBuffer{T} # Stores data entries until the buffer is full.
     remotequeue::RemoteChannel{Channel{TypedBuffer{T}}} # References the channel on the master
@@ -31,7 +32,7 @@ function HDF5Writer(filename::String, groupname::String, collector::Collector;
     localbuffer = TypedBuffer(collector, chunksz)
     buffertype = typeof(localbuffer)
     remotequeue = RemoteChannel(() -> Channel{buffertype}(channels_per_worker * nworkers()), 1)
-    return HDF5Writer(filename, groupname, writemode, collector, localbuffer, remotequeue)
+    return HDF5Writer(filename, groupname, writemode, 0, collector, localbuffer, remotequeue)
 end
 
 
@@ -84,11 +85,9 @@ function pmaphdf5{Experiment}(hdf5group::HDF5Group, f::Function, expqueue::Vecto
 
     @sync begin
         @async begin
-            writeoffset = 0
             while true
                 try
-                    writeoffset = inserthdf5!(hdf5group, writeoffset, writer,
-                                              take!(writer.remotequeue))
+                    inserthdf5!(hdf5group, writer, take!(writer.remotequeue))
                 catch err
                     if isa(err, InvalidStateException) && err.state == :closed
                         break # Resultsqueue is empty and was closed because workers are done.
@@ -124,8 +123,8 @@ end
 
 # Uses a generated function to unroll the loop over the datavector tuple. This avoids the type
 # instability that results from iterating over a heterogenous tuple.
-@generated function inserthdf5!{T}(hdf5group::HDF5Group, writeoffset::Integer,
-                                   writer::HDF5Writer, remotequeue::TypedBuffer{T})
+@generated function inserthdf5!(hdf5group::HDF5Group, writer::HDF5Writer,
+                                remotequeue::TypedBuffer{T}) where T
     n_datavectors = length(T.parameters)
 
     ex = :()
@@ -141,13 +140,13 @@ end
                    dset = d_create(hdf5group, name, $datatype, ((size, ), (-1, )), "chunk",
                                    (maxsize, ));
                end;
-               dset[(writeoffset + 1):newoffset] = view(data[$datavector_idx], 1:size);
+               dset[(writer.writeoffset + 1):newoffset] = view(data[$datavector_idx], 1:size);
                close(dset);)
     end
 
     return quote
         if remotequeue.size > 0
-            newoffset = writeoffset + remotequeue.size
+            newoffset = writer.writeoffset + remotequeue.size
 
             # Hoist from the loop.
             names = writer.collector.names
@@ -157,8 +156,8 @@ end
 
             $ex
 
-            writeoffset = newoffset
+            writer.writeoffset = newoffset
         end
-        return writeoffset
+        return nothing
     end
 end

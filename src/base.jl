@@ -7,11 +7,7 @@ end
 """
     Reporter(name, datatype, call)
 
-Return a `Reporter` that specifies a piece of data that should be collected. `name`
-
-Each of `N` elements of
-`args` is a `Tuple{String, DataType, Function}` that specifies a piece of collected data. The
-`String` specifies the name of the piece of data and the `DataType` its type.
+Return a `Reporter` that specifies a piece of data that should be collected.
 
 # Arguments
 * `name::String`: specifies the name of the piece of data.
@@ -19,14 +15,14 @@ Each of `N` elements of
 * `call::Function`: specifies a Function that returns the corresponding value when called as
     `f(args...)`.
 """
-function Reporter(name::String, datatype::DataType, call::F) where F <: Function
+function Reporter(name::String, datatype::DataType, call::F) where F<:Function
     return Reporter{datatype,F}(name, call)
 end
 
 
-immutable Collector{T,C,F1,F2,F3,F4}
+immutable Collector{T,C,F1<:Function,F2<:Function,F3<:Function,F4<:Function}
     names::Vector{String} # Holds the reporter names.
-    calls::C # Holds the reporter functions.
+    calls::C # Holds the reporter calls.
     iter::F1 # Returns an iterable when called as iter(model, agents, exp).
     condition::F2 # Specifies the conditions under which calls to update the
                   # collector should proceed. Continues if and only if `condition(model,
@@ -60,14 +56,10 @@ Return a `Collector` that collects data for the reporters.
     an empty function.
 """
 function Collector(reporters::Reporter...;
-                   iter::Function = passthrough, condition::Function = always_true,
-                   prepare::Function = always_nothing, finish::Function = always_nothing)
+                   iter::F1 = passthrough, condition::F2 = always_true,
+                   prepare::F3 = always_nothing, finish::F4 = always_nothing) where {F1,F2,F3,F4}
     T = Tuple{(typeof(reporter).parameters[1] for reporter in reporters)...}
     C = Tuple{(typeof(reporter).parameters[2] for reporter in reporters)...}
-    F1 = typeof(iter)
-    F2 = typeof(condition)
-    F3 = typeof(prepare)
-    F4 = typeof(finish)
     names = [reporter.name for reporter in reporters]
     calls = ((reporter.call for reporter in reporters)...)
     return Collector{T,C,F1,F2,F3,F4}(names, calls, iter, condition, prepare, finish)
