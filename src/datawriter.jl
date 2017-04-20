@@ -73,7 +73,11 @@ closed.
 * `writer::DataWriter`: the DataWriter whose buffer to flush.
 """
 function flushdata(writer::DataWriter)
-    put!(writer.remotequeue, deepcopy(writer.localbuffer))
+    if myid() == 1 # Force a buffer copy when the caller is also the master so re-using it is safe.
+        put!(writer.remotequeue, deepcopy(writer.localbuffer))
+    else
+        put!(writer.remotequeue, writer.localbuffer)
+    end
     writer.localbuffer.size = 0
     return nothing
 end
