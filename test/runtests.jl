@@ -5,6 +5,7 @@ using Base.Test
 
 @testset "AgentBased.jl" begin
 
+
 #==================================================================================================
 TEST REPORTERS
 ==================================================================================================#
@@ -62,7 +63,7 @@ TEST TYPEDBUFFERS
 
         @test Base.return_types(check_data, Tuple{typeof(t1)}) == [Tuple{Int64,Float64}]
         @test Base.return_types(AgentBased.TypedBuffer, Tuple{typeof(c1), Int}) ==
-            [AgentBased.TypedBuffer{Tuple{Array{Int64,1},Array{Float64,1}}}]
+            [AgentBased.TypedBuffer{Tuple{Vector{Int64},Vector{Float64}}}]
     end
 
 
@@ -102,44 +103,39 @@ TEST HDF5WRITER
             [Tuple{Int64,Float64}]
     end
 
+
 #==================================================================================================
-TEST COLLECTDATA
+TEST COLLECTDATA, ENSUREROOM, AND FLUSHDATA
 ==================================================================================================#
 
-    test_iter() = 1:4
-    test_r1 = Reporter("iter", Int64, (i) -> i)
-    test_r2 = Reporter("float", Float64, (i) -> convert(Float64, i))
-    test_r3 = Reporter("string", String, (i) -> "iter_" * string(i))
-    test_c = Collector(test_r1, test_r2, test_r3; iter = test_iter)
-    test_w = HDF5Writer("test.h5", "test", test_c; chunksz = 3, channels_per_worker = 1)
+    @testset "HDF5Writer data collection" begin
+        test_iter() = 1:4
+        test_r1 = Reporter("iter", Int64, (i) -> i)
+        test_r2 = Reporter("float", Float64, (i) -> convert(Float64, i))
+        test_c = Collector(test_r1, test_r2; iter = test_iter)
+        test_w = HDF5Writer("test.h5", "test", test_c; chunksz = 3, channels_per_worker = 1)
 
-    @sync begin
-        @async begin
-            collectdata(test_w)
-            AgentBased.flushdata(test_w)
-        end
-        @async begin
-            take!(test_w.remotequeue)
-            take!(test_w.remotequeue)
+        @sync begin
+            @async begin
+                collectdata(test_w)
+                AgentBased.flushdata(test_w)
+            end
+            @async begin
+                take!(test_w.remotequeue) ==
+                    AgentBased.TypedBuffer{Tuple{Vector{Int64},Vector{Float64}}}(
+                        3, 3, ([1, 2, 3], [1.0, 2.0, 3.0]))
+                take!(test_w.remotequeue) ==
+                    AgentBased.TypedBuffer{Tuple{Vector{Int64},Vector{Float64}}}(
+                        1, 3, ([4, 2, 3], [4.0, 2.0, 3.0]))
+            end
         end
     end
 
 
 #==================================================================================================
-TEST FLUSHDATA
+TEST RUNBATCH
 ==================================================================================================#
 
-#==================================================================================================
-TEST ENSUREROOM
-==================================================================================================#
-
-#==================================================================================================
-TEST SIMBATCH
-==================================================================================================#
-
-#==================================================================================================
-TEST PMAPHDF5
-==================================================================================================#
 
 #==================================================================================================
 TEST INSERTHDF5

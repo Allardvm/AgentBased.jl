@@ -1,4 +1,4 @@
-abstract type DataWriter{C,T} end
+abstract type Writer{C,T} end
 
 
 type TypedBuffer{T<:NTuple{<:Any,Array}}
@@ -27,10 +27,10 @@ When the the `writer`'s local buffer is full, automatically send the buffered da
 process to write it to disk.
 
 # Arguments
-* `writer::DataWriter`: the DataWriter to use.
+* `writer::Writer`: the Writer to use.
 * `args...`: arguments to pass on to the collector's functions.
 """
-@generated function collectdata(writer::DataWriter{C,T}, args...) where {C,T}
+@generated function collectdata{C,T}(writer::Writer{C,T}, args...)
     n_calls = length(T.parameters)
     ex = :()
     for call_idx in 1:n_calls
@@ -70,10 +70,10 @@ that any remaining locally buffered data is send to the master proces before the
 closed.
 
 # Arguments
-* `writer::DataWriter`: the DataWriter whose buffer to flush.
+* `writer::Writer`: the Writer whose buffer to flush.
 """
-function flushdata(writer::DataWriter)
-    if myid() == 1 # Force a buffer copy when the caller is also the master so re-using it is safe.
+function flushdata(writer::Writer)
+    if myid() == 1 # Make re-using the buffer safe by forcing a copy when the caller is the master.
         put!(writer.remotequeue, deepcopy(writer.localbuffer))
     else
         put!(writer.remotequeue, writer.localbuffer)
@@ -83,7 +83,7 @@ function flushdata(writer::DataWriter)
 end
 
 
-function ensureroom(writer::DataWriter)
+function ensureroom(writer::Writer)
     if writer.localbuffer.size >= writer.localbuffer.maxsize
         flushdata(writer)
     end
