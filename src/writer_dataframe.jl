@@ -29,7 +29,7 @@ function DataFrameWriter(collector::Collector{C};
     df_names = [Symbol(colname) for colname in collector.names]
     results = DataFrame(df_columns, df_names)
 
-    return DataFrameWriter(dataframe, collector, localbuffer, remotequeue)
+    return DataFrameWriter(results, collector, localbuffer, remotequeue)
 end
 
 
