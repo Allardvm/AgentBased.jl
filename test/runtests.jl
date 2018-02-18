@@ -2,6 +2,7 @@
 
 using AgentBased
 using Base.Test
+using HDF5
 
 @testset "AgentBased.jl" begin
 
