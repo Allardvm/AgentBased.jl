@@ -1,4 +1,4 @@
-immutable Reporter{T,F<:Function}
+struct Reporter{T,F<:Function}
     name::String
     call::F
 end
@@ -20,7 +20,7 @@ function Reporter(name::String, datatype::DataType, call::F) where F<:Function
 end
 
 
-immutable Collector{T,C,F1<:Function,F2<:Function,F3<:Function,F4<:Function}
+struct Collector{T,C,F1<:Function,F2<:Function,F3<:Function,F4<:Function}
     names::Vector{String} # Holds the reporter names.
     calls::C # Holds the reporter calls.
     iter::F1 # Returns an iterable when called as iter(model, agents, exp).

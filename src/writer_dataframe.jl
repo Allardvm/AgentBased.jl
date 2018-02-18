@@ -1,4 +1,4 @@
-type DataFrameWriter{C,T} <: Writer{C,T}
+mutable struct DataFrameWriter{C,T} <: Writer{C,T}
     results::DataFrame
     collector::C # The collector used by the Writer.
     localbuffer::TypedBuffer{T} # Stores data entries until the buffer is full.

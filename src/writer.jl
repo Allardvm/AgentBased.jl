@@ -1,7 +1,7 @@
 abstract type Writer{C,T} end
 
 
-type TypedBuffer{T<:NTuple{<:Any,Array}}
+mutable struct TypedBuffer{T<:NTuple{<:Any,Array}}
     size::Int # The current number of data entries in the buffer.
     maxsize::Int # The maximum number of data entries in the buffer.
     data::T # Tuple that contains a fixed number of data vectors with length `maxsize`.

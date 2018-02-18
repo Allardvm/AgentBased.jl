@@ -1,6 +1,6 @@
 const SUPPORTED_HDF5 = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Float32, Float64)
 
-type HDF5Writer{C,T} <: Writer{C,T}
+mutable struct HDF5Writer{C,T} <: Writer{C,T}
     filename::String
     groupname::String
     writemode::String
