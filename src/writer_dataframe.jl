@@ -1,3 +1,6 @@
+using Distributed
+
+
 mutable struct DataFrameWriter{C,T} <: Writer{C,T}
     results::DataFrame
     collector::C # The collector used by the Writer.
@@ -25,7 +28,7 @@ function DataFrameWriter(collector::Collector{C};
     buffertype = typeof(localbuffer)
     remotequeue = RemoteChannel(() -> Channel{buffertype}(channels_per_worker * nworkers()), 1)
 
-    df_columns = [Array{coltype}(0) for coltype in C.types]
+    df_columns = [Array{coltype}(undef, 0) for coltype in C.types]
     df_names = [Symbol(colname) for colname in collector.names]
     results = DataFrame(df_columns, df_names)
 
@@ -38,7 +41,7 @@ function open_sink(writer::DataFrameWriter)
 end
 
 
-function close_sink(sink::Void, writer::DataFrameWriter)
+function close_sink(sink::Nothing, writer::DataFrameWriter)
     return nothing
 end
 
@@ -48,7 +51,7 @@ function get_return(writer::DataFrameWriter)
 end
 
 
-function insert!(sink::Void, writer::DataFrameWriter, buffer::TypedBuffer{T}) where T
+function insert!(sink::Nothing, writer::DataFrameWriter, buffer::TypedBuffer{T}) where T
     n_datavectors = length(T.parameters)
 
     # Hoist from the loop.

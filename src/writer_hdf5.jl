@@ -1,3 +1,6 @@
+using Distributed
+
+
 const SUPPORTED_HDF5 = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Float32, Float64)
 
 mutable struct HDF5Writer{C,T} <: Writer{C,T}

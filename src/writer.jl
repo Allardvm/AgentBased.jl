@@ -13,7 +13,7 @@ end
     n_datavectors = length(buffer_datatypes)
     T = Tuple{(Vector{buffer_datatypes[i]} for i in 1:n_datavectors)...}
 
-    return :(TypedBuffer{$T}(0, maxsize, ($([:(Vector{$(buffer_datatypes[i])}(maxsize))
+    return :(TypedBuffer{$T}(0, maxsize, ($([:(Vector{$(buffer_datatypes[i])}(undef, maxsize))
                                              for i in 1:n_datavectors]...),)))
 end
 
@@ -30,7 +30,7 @@ process to write it to disk.
 * `writer::Writer`: the Writer to use.
 * `args...`: arguments to pass on to the collector's functions.
 """
-@generated function collectdata{C,T}(writer::Writer{C,T}, args...)
+@generated function collectdata(writer::Writer{C,T}, args...) where {C,T}
     n_calls = length(T.parameters)
     ex = :()
     for call_idx in 1:n_calls

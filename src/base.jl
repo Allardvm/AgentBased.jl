@@ -61,6 +61,6 @@ function Collector(reporters::Reporter...;
     T = Tuple{(typeof(reporter).parameters[1] for reporter in reporters)...}
     C = Tuple{(typeof(reporter).parameters[2] for reporter in reporters)...}
     names = [reporter.name for reporter in reporters]
-    calls = ((reporter.call for reporter in reporters)...)
+    calls = ((reporter.call for reporter in reporters)..., )
     return Collector{T,C,F1,F2,F3,F4}(names, calls, iter, condition, prepare, finish)
 end
